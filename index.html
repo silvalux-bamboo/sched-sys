@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>SCHED.SYS — 일정 관리 시스템</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+  :root {
+    --green: #33ff66;
+    --green-dim: #1a9940;
+    --green-glow: #33ff6644;
+    --amber: #ffaa00;
+    --amber-dim: #996600;
+    --cyan: #33ddff;
+    --cyan-dim: #1a8899;
+    --cyan-glow: #33ddff44;
+    --red: #ff3344;
+    --red-dim: #992233;
+    --bg: #0a0a0a;
+    --scanline: rgba(0,0,0,0.12);
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+  body {
+    background:var(--bg); color:var(--green);
+    font-family:'Share Tech Mono',monospace;
+    min-height:100vh; overflow-x:hidden; padding-bottom:100px;
+  }
+
+  body::before {
+    content:"";position:fixed;top:0;left:0;right:0;bottom:0;
+    background:repeating-linear-gradient(0deg,var(--scanline) 0px,var(--scanline) 1px,transparent 1px,transparent 3px);
+    pointer-events:none;z-index:9999;
+  }
+  body::after {
+    content:"";position:fixed;top:0;left:0;right:0;bottom:0;
+    background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,0.5) 100%);
+    pointer-events:none;z-index:9998;
+  }
+
+  .container { max-width:800px; margin:0 auto; padding:16px; }
+
+  .header {
+    border:1px solid var(--green-dim); padding:10px 16px;
+    margin-bottom:16px; text-align:center; background:rgba(51,255,102,0.03);
+  }
+  .header h1 {
+    font-size:1.3em; letter-spacing:5px;
+    text-shadow:0 0 10px var(--green-glow),0 0 20px var(--green-glow);
+    animation:flicker 4s infinite;
+  }
+  .header .sub { font-size:0.7em; color:var(--green-dim); margin-top:3px; }
+  @keyframes flicker { 0%,100%{opacity:1}92%{opacity:1}93%{opacity:.8}94%{opacity:1}96%{opacity:.9}97%{opacity:1} }
+
+  .date-nav {
+    display:flex; align-items:center; justify-content:center;
+    gap:10px; margin-bottom:16px;
+  }
+  .date-nav button {
+    background:none; border:1px solid var(--green-dim); color:var(--green);
+    font-family:inherit; font-size:1em; padding:8px 14px; cursor:pointer;
+    min-height:44px; transition:all .2s;
+  }
+  .date-nav button:active { background:rgba(51,255,102,0.15); }
+  .date-nav .current-date { min-width:170px; text-align:center; text-shadow:0 0 8px var(--green-glow); font-size:0.9em; }
+  .date-nav .today-btn { font-size:0.75em; color:var(--amber); border-color:var(--amber-dim); }
+  .date-nav .today-btn:active { background:rgba(255,170,0,0.15); }
+
+  .week-bar { display:flex; gap:3px; margin-bottom:16px; }
+  .week-bar .day {
+    flex:1; text-align:center; padding:8px 2px; border:1px solid rgba(51,255,102,0.15);
+    cursor:pointer; font-size:0.75em; transition:all .2s; min-height:52px;
+  }
+  .week-bar .day:active { background:rgba(51,255,102,0.1); }
+  .week-bar .day.active { border-color:var(--green); background:rgba(51,255,102,0.1); text-shadow:0 0 8px var(--green-glow); }
+  .week-bar .day.today { border-color:var(--amber); color:var(--amber); }
+  .week-bar .day.today.active { border-color:var(--amber); background:rgba(255,170,0,0.1); }
+  .week-bar .day .day-name { font-size:0.85em; color:var(--green-dim); }
+  .week-bar .day.today .day-name { color:var(--amber-dim); }
+  .week-bar .day .day-num { font-size:1.1em; margin-top:2px; }
+  .week-bar .day .dot { width:4px;height:4px;border-radius:50%;background:var(--green);margin:4px auto 0;opacity:0; }
+  .week-bar .day .dot.has-event { opacity:1; }
+  .week-bar .day.today .dot.has-event { background:var(--amber); }
+
+  .section-label {
+    font-size:0.8em; color:var(--green-dim);
+    border-bottom:1px solid rgba(51,255,102,0.2);
+    padding-bottom:4px; margin-bottom:10px; letter-spacing:3px;
+    display:flex; justify-content:space-between;
+  }
+  .section-label.cyan { color:var(--cyan-dim); border-bottom-color:rgba(51,221,255,0.2); }
+
+  .schedule-list { margin-bottom:20px; }
+
+  .sched-item {
+    display:flex; align-items:flex-start; gap:10px;
+    padding:12px; border:1px solid rgba(51,255,102,0.15);
+    margin-bottom:5px; transition:all .15s;
+  }
+  .sched-item:active { background:rgba(51,255,102,0.04); }
+
+  .sched-item .check {
+    width:30px; height:30px; border:2px solid var(--green-dim);
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; font-size:1.1em; flex-shrink:0; transition:all .15s;
+  }
+  .sched-item .check:active { background:rgba(51,255,102,0.2); }
+  .sched-item.done .check { border-color:var(--green); color:var(--green); background:rgba(51,255,102,0.1); }
+
+  .sched-item .time { color:var(--amber); white-space:nowrap; min-width:44px; font-size:0.8em; padding-top:6px; }
+  .sched-item .content { flex:1; min-width:0; }
+  .sched-item .title-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .sched-item .title { font-size:0.9em; word-break:break-word; }
+  .sched-item .memo { font-size:0.7em; color:var(--green-dim); margin-top:3px; }
+  .sched-item.done .title { text-decoration:line-through; color:var(--green-dim); }
+  .sched-item.done .priority { opacity:0.4; }
+
+  .priority { font-size:0.6em; padding:2px 6px; letter-spacing:1px; flex-shrink:0; }
+  .priority.high { color:var(--red);border:1px solid var(--red-dim);text-shadow:0 0 6px rgba(255,51,68,0.4);animation:pulse-red 2s infinite; }
+  .priority.med { color:var(--amber);border:1px solid var(--amber-dim);text-shadow:0 0 6px rgba(255,170,0,0.3); }
+  .priority.low { color:var(--green-dim);border:1px solid rgba(51,255,102,0.2); }
+  @keyframes pulse-red { 0%,100%{opacity:1}50%{opacity:.7} }
+
+  .del-btn {
+    background:none; border:none; color:var(--green-dim);
+    font-family:inherit; font-size:0.75em; cursor:pointer;
+    padding:8px; min-width:36px; min-height:36px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .del-btn:active { color:var(--red); }
+
+  .empty-state {
+    text-align:center; padding:24px; color:var(--green-dim);
+    font-size:0.8em; border:1px dashed rgba(51,255,102,0.15);
+  }
+
+  .idea-section { margin-bottom:20px; }
+  .idea-item {
+    display:flex; align-items:flex-start; gap:10px;
+    padding:12px; border:1px solid rgba(51,221,255,0.15);
+    margin-bottom:5px;
+  }
+  .idea-item .idea-icon { color:var(--cyan); text-shadow:0 0 8px var(--cyan-glow); flex-shrink:0; font-size:1.1em; }
+  .idea-item .content { flex:1; min-width:0; }
+  .idea-item .title { font-size:0.9em; color:var(--cyan); word-break:break-word; }
+  .idea-item .memo { font-size:0.7em; color:var(--cyan-dim); margin-top:3px; }
+  .idea-item .timestamp { font-size:0.6em; color:var(--cyan-dim); opacity:.6; margin-top:3px; }
+  .idea-item .del-btn { color:var(--cyan-dim); }
+  .idea-empty { text-align:center;padding:24px;color:var(--cyan-dim);font-size:0.8em;border:1px dashed rgba(51,221,255,0.15); }
+
+  .add-form { border:1px solid var(--green-dim);padding:14px;margin-bottom:14px;background:rgba(51,255,102,0.03); }
+  .add-form.cyan { border-color:var(--cyan-dim);background:rgba(51,221,255,0.03); }
+  .add-form .form-title { font-size:0.8em;color:var(--amber);margin-bottom:10px;letter-spacing:2px; }
+  .add-form.cyan .form-title { color:var(--cyan); }
+
+  .form-row { display:flex;gap:8px;margin-bottom:8px;align-items:center; }
+  .form-row label { font-size:0.75em;color:var(--green-dim);min-width:44px; }
+  .add-form.cyan .form-row label { color:var(--cyan-dim); }
+
+  .form-row input,.form-row textarea {
+    flex:1;background:rgba(0,0,0,0.5);border:1px solid rgba(51,255,102,0.3);
+    color:var(--green);font-family:inherit;font-size:0.85em;
+    padding:10px;outline:none;min-height:42px;
+  }
+  .form-row input:focus,.form-row textarea:focus { border-color:var(--green);box-shadow:0 0 8px var(--green-glow); }
+  .form-row textarea { height:50px;resize:vertical; }
+  .add-form.cyan input,.add-form.cyan textarea { border-color:rgba(51,221,255,0.3);color:var(--cyan); }
+  .add-form.cyan input:focus,.add-form.cyan textarea:focus { border-color:var(--cyan);box-shadow:0 0 8px var(--cyan-glow); }
+
+  .priority-selector { display:flex;gap:6px;flex:1; }
+  .priority-selector .p-btn {
+    flex:1;padding:10px 4px;border:1px solid rgba(51,255,102,0.2);
+    background:none;color:var(--green-dim);font-family:inherit;
+    font-size:0.75em;cursor:pointer;text-align:center;
+    min-height:42px;letter-spacing:1px;transition:all .15s;
+  }
+  .priority-selector .p-btn:active { opacity:.7; }
+  .priority-selector .p-btn.sel-high { border-color:var(--red);color:var(--red);background:rgba(255,51,68,0.1);text-shadow:0 0 6px rgba(255,51,68,0.3); }
+  .priority-selector .p-btn.sel-med { border-color:var(--amber);color:var(--amber);background:rgba(255,170,0,0.1); }
+  .priority-selector .p-btn.sel-low { border-color:var(--green-dim);color:var(--green);background:rgba(51,255,102,0.05); }
+
+  .form-buttons { display:flex;gap:8px;justify-content:flex-end;margin-top:10px; }
+  .btn {
+    background:none;border:1px solid var(--green-dim);color:var(--green);
+    font-family:inherit;font-size:0.8em;padding:10px 16px;cursor:pointer;
+    letter-spacing:1px;min-height:42px;transition:all .15s;
+  }
+  .btn:active { background:rgba(51,255,102,0.15); }
+  .btn.primary { border-color:var(--green);background:rgba(51,255,102,0.1); }
+  .btn.cyan { border-color:var(--cyan-dim);color:var(--cyan); }
+  .btn.cyan:active { background:rgba(51,221,255,0.15); }
+  .btn.cyan.primary { border-color:var(--cyan);background:rgba(51,221,255,0.1); }
+
+  .fab-area { position:fixed;bottom:20px;right:16px;z-index:100;display:flex;flex-direction:column;align-items:flex-end;gap:8px; }
+  .fab-menu { display:none;flex-direction:column;gap:6px;align-items:flex-end; }
+  .fab-menu.open { display:flex; }
+  .fab-menu button {
+    padding:10px 16px;font-family:inherit;font-size:0.8em;cursor:pointer;
+    min-height:44px;letter-spacing:1px;border:1px solid var(--green);
+    background:var(--bg);color:var(--green);box-shadow:0 0 10px var(--green-glow);
+  }
+  .fab-menu button:active { background:rgba(51,255,102,0.15); }
+  .fab-menu button.cyan-btn { border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 10px var(--cyan-glow); }
+  .fab-menu button.cyan-btn:active { background:rgba(51,221,255,0.15); }
+  .fab-main {
+    width:52px;height:52px;border:2px solid var(--green);background:var(--bg);
+    color:var(--green);font-family:inherit;font-size:1.5em;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    text-shadow:0 0 10px var(--green-glow);box-shadow:0 0 15px var(--green-glow);
+  }
+  .fab-main:active { background:rgba(51,255,102,0.15); }
+
+  .status-bar {
+    margin-top:20px;padding:8px 10px;border-top:1px solid rgba(51,255,102,0.2);
+    display:flex;justify-content:space-between;font-size:0.65em;color:var(--green-dim);
+  }
+
+  @media(max-width:600px){
+    .container{padding:10px}
+    .header h1{font-size:1em;letter-spacing:3px}
+    .date-nav{gap:6px}
+    .date-nav button{padding:8px 10px;font-size:.9em}
+    .date-nav .current-date{min-width:130px;font-size:.8em}
+    .week-bar .day{padding:6px 1px;font-size:.68em;min-height:48px}
+    .form-row{flex-direction:column;gap:4px}
+    .form-row label{min-width:auto}
+    .priority-selector{gap:4px}
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>█▓▒░ SCHED.SYS ░▒▓█</h1>
+    <div class="sub">v2.0.0 / PERSONAL SCHEDULE TERMINAL</div>
+  </div>
+
+  <div class="date-nav">
+    <button onclick="moveDate(-1)">◄</button>
+    <button class="today-btn" onclick="goToday()">TODAY</button>
+    <div class="current-date" id="currentDate"></div>
+    <button onclick="moveDate(1)">►</button>
+  </div>
+
+  <div class="week-bar" id="weekBar"></div>
+  <div id="addFormArea"></div>
+  <div class="section-label"><span>▸ SCHEDULE.DB</span><span id="schedCount"></span></div>
+  <div class="schedule-list" id="scheduleList"></div>
+
+  <div id="ideaFormArea"></div>
+  <div class="section-label cyan"><span>◆ IDEA_NOTE.DB</span><span id="ideaCount"></span></div>
+  <div class="idea-section" id="ideaList"></div>
+
+  <div class="status-bar">
+    <span id="statusInfo">SYSTEM READY</span>
+    <span id="statusDate"></span>
+  </div>
+</div>
+
+<div class="fab-area">
+  <div class="fab-menu" id="fabMenu">
+    <button onclick="openSchedForm()">▸ SCHEDULE</button>
+    <button class="cyan-btn" onclick="openIdeaForm()">◆ IDEA</button>
+  </div>
+  <button class="fab-main" id="fabBtn" onclick="fabToggle()">+</button>
+</div>
+
+<script>
+  let currentDate=new Date();
+  let schedules=JSON.parse(localStorage.getItem('sched_data')||'{}');
+  let ideas=JSON.parse(localStorage.getItem('idea_data')||'{}');
+  let fabOpen=false, currentForm=null, selectedPriority='med';
+
+  const dateKey=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const isSameDay=(a,b)=>a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
+  const escHtml=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  function formatDateKo(d){
+    const dn=['일','월','화','수','목','금','토'][d.getDay()];
+    return d.getFullYear()+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+String(d.getDate()).padStart(2,'0')+' ['+dn+']';
+  }
+
+  function moveDate(n){currentDate.setDate(currentDate.getDate()+n);render();}
+  function goToday(){currentDate=new Date();render();}
+  function selectDate(d){currentDate=new Date(d);render();}
+
+  function fabToggle(){
+    if(currentForm){closeAllForms();return;}
+    fabOpen=!fabOpen;
+    document.getElementById('fabMenu').classList.toggle('open',fabOpen);
+    document.getElementById('fabBtn').textContent=fabOpen?'×':'+';
+  }
+  function closeFab(){
+    fabOpen=false;
+    document.getElementById('fabMenu').classList.remove('open');
+    document.getElementById('fabBtn').textContent='+';
+  }
+  function closeAllForms(){
+    currentForm=null;selectedPriority='med';
+    document.getElementById('addFormArea').innerHTML='';
+    document.getElementById('ideaFormArea').innerHTML='';
+    closeFab();
+  }
+
+  function openSchedForm(){
+    closeFab();currentForm='sched';selectedPriority='med';
+    document.getElementById('ideaFormArea').innerHTML='';
+    document.getElementById('addFormArea').innerHTML=`
+      <div class="add-form">
+        <div class="form-title">▸ NEW_RECORD</div>
+        <div class="form-row"><label>TIME</label><input type="time" id="inputTime"></div>
+        <div class="form-row"><label>TITLE</label><input type="text" id="inputTitle" placeholder="일정 제목 입력..." maxlength="100"></div>
+        <div class="form-row">
+          <label>PRIOR</label>
+          <div class="priority-selector">
+            <button class="p-btn" id="pH" onclick="setPri('high')">HIGH</button>
+            <button class="p-btn sel-med" id="pM" onclick="setPri('med')">MED</button>
+            <button class="p-btn" id="pL" onclick="setPri('low')">LOW</button>
+          </div>
+        </div>
+        <div class="form-row"><label>MEMO</label><textarea id="inputMemo" placeholder="메모 (선택)..." maxlength="200"></textarea></div>
+        <div class="form-buttons">
+          <button class="btn" onclick="closeAllForms()">CANCEL</button>
+          <button class="btn primary" onclick="addItem()">ADD_RECORD</button>
+        </div>
+      </div>`;
+    document.getElementById('fabBtn').textContent='×';
+    setTimeout(()=>document.getElementById('inputTitle').focus(),100);
+  }
+
+  function setPri(p){
+    selectedPriority=p;
+    document.getElementById('pH').className='p-btn'+(p==='high'?' sel-high':'');
+    document.getElementById('pM').className='p-btn'+(p==='med'?' sel-med':'');
+    document.getElementById('pL').className='p-btn'+(p==='low'?' sel-low':'');
+  }
+
+  function addItem(){
+    const time=document.getElementById('inputTime').value;
+    const title=document.getElementById('inputTitle').value.trim();
+    const memo=document.getElementById('inputMemo').value.trim();
+    if(!title){document.getElementById('inputTitle').style.borderColor='var(--red)';return;}
+    const key=dateKey(currentDate);
+    if(!schedules[key])schedules[key]=[];
+    schedules[key].push({time,title,memo,done:false,priority:selectedPriority});
+    localStorage.setItem('sched_data',JSON.stringify(schedules));
+    closeAllForms();render();
+  }
+
+  function deleteItem(key,idx){
+    schedules[key].splice(idx,1);
+    if(!schedules[key].length)delete schedules[key];
+    localStorage.setItem('sched_data',JSON.stringify(schedules));
+    render();
+  }
+
+  function toggleDone(key,idx){
+    schedules[key][idx].done=!schedules[key][idx].done;
+    localStorage.setItem('sched_data',JSON.stringify(schedules));
+    render();
+  }
+
+  function openIdeaForm(){
+    closeFab();currentForm='idea';
+    document.getElementById('addFormArea').innerHTML='';
+    document.getElementById('ideaFormArea').innerHTML=`
+      <div class="add-form cyan">
+        <div class="form-title">◆ NEW_IDEA</div>
+        <div class="form-row"><label>IDEA</label><input type="text" id="ideaTitle" placeholder="아이디어 제목..." maxlength="100"></div>
+        <div class="form-row"><label>NOTE</label><textarea id="ideaMemo" placeholder="상세 메모 (선택)..." maxlength="500"></textarea></div>
+        <div class="form-buttons">
+          <button class="btn cyan" onclick="closeAllForms()">CANCEL</button>
+          <button class="btn cyan primary" onclick="addIdea()">LOG_IDEA</button>
+        </div>
+      </div>`;
+    document.getElementById('fabBtn').textContent='×';
+    setTimeout(()=>document.getElementById('ideaTitle').focus(),100);
+  }
+
+  function addIdea(){
+    const title=document.getElementById('ideaTitle').value.trim();
+    const memo=document.getElementById('ideaMemo').value.trim();
+    if(!title){document.getElementById('ideaTitle').style.borderColor='var(--red)';return;}
+    const key=dateKey(currentDate);
+    if(!ideas[key])ideas[key]=[];
+    const now=new Date();
+    ideas[key].push({title,memo,time:String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0')});
+    localStorage.setItem('idea_data',JSON.stringify(ideas));
+    closeAllForms();render();
+  }
+
+  function deleteIdea(key,idx){
+    ideas[key].splice(idx,1);
+    if(!ideas[key].length)delete ideas[key];
+    localStorage.setItem('idea_data',JSON.stringify(ideas));
+    render();
+  }
+
+  function renderWeekBar(){
+    const bar=document.getElementById('weekBar'),today=new Date();
+    const start=new Date(currentDate);start.setDate(start.getDate()-currentDate.getDay());
+    const dns=['SUN','MON','TUE','WED','THU','FRI','SAT'];
+    let h='';
+    for(let i=0;i<7;i++){
+      const d=new Date(start);d.setDate(d.getDate()+i);
+      const isT=isSameDay(d,today),isA=isSameDay(d,currentDate),key=dateKey(d);
+      const hasE=(schedules[key]&&schedules[key].length)||(ideas[key]&&ideas[key].length);
+      let c='day';if(isT)c+=' today';if(isA)c+=' active';
+      h+='<div class="'+c+'" onclick="selectDate(\''+d.toISOString()+'\')">';
+      h+='<div class="day-name">'+dns[i]+'</div><div class="day-num">'+d.getDate()+'</div>';
+      h+='<div class="dot '+(hasE?'has-event':'')+'"></div></div>';
+    }
+    bar.innerHTML=h;
+  }
+
+  function renderSchedules(){
+    const list=document.getElementById('scheduleList'),key=dateKey(currentDate),items=schedules[key]||[];
+    if(!items.length){
+      list.innerHTML='<div class="empty-state">NO RECORDS FOUND_<br><span style="font-size:.85em">+ 버튼으로 일정을 추가하세요</span></div>';
+    } else {
+      const pOrd={high:0,med:1,low:2};
+      const sorted=[...items].map((it,i)=>({...it,_i:i})).sort((a,b)=>(pOrd[a.priority||'med']-pOrd[b.priority||'med'])||(a.time||'').localeCompare(b.time||''));
+      let h='';
+      sorted.forEach(item=>{
+        const p=item.priority||'med', pL={high:'HIGH',med:'MED',low:'LOW'}[p];
+        h+='<div class="sched-item'+(item.done?' done':'')+'">';
+        h+='<div class="check" onclick="toggleDone(\''+key+'\','+item._i+')">'+(item.done?'✓':'')+'</div>';
+        h+='<div class="time">'+(item.time||'--:--')+'</div>';
+        h+='<div class="content"><div class="title-row"><span class="title">'+escHtml(item.title)+'</span>';
+        h+='<span class="priority '+p+'">'+pL+'</span></div>';
+        if(item.memo)h+='<div class="memo">// '+escHtml(item.memo)+'</div>';
+        h+='</div><button class="del-btn" onclick="deleteItem(\''+key+'\','+item._i+')">DEL</button></div>';
+      });
+      list.innerHTML=h;
+    }
+    const done=items.filter(i=>i.done).length;
+    document.getElementById('schedCount').textContent='['+done+'/'+items.length+' DONE]';
+  }
+
+  function renderIdeas(){
+    const list=document.getElementById('ideaList'),key=dateKey(currentDate),items=ideas[key]||[];
+    if(!items.length){
+      list.innerHTML='<div class="idea-empty">NO IDEAS LOGGED_<br><span style="font-size:.85em">+ 버튼으로 아이디어를 기록하세요</span></div>';
+    } else {
+      let h='';
+      items.forEach((item,idx)=>{
+        h+='<div class="idea-item"><div class="idea-icon">◇</div><div class="content">';
+        h+='<div class="title">'+escHtml(item.title)+'</div>';
+        if(item.memo)h+='<div class="memo">// '+escHtml(item.memo)+'</div>';
+        h+='<div class="timestamp">'+(item.time||'')+'</div></div>';
+        h+='<button class="del-btn" onclick="deleteIdea(\''+key+'\','+idx+')">DEL</button></div>';
+      });
+      list.innerHTML=h;
+    }
+    document.getElementById('ideaCount').textContent='['+items.length+']';
+  }
+
+  function render(){
+    document.getElementById('currentDate').textContent=formatDateKo(currentDate);
+    document.getElementById('statusDate').textContent=dateKey(currentDate);
+    renderWeekBar();renderSchedules();renderIdeas();
+  }
+  render();
+</script>
+</body>
+</html>
